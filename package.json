@@ -1,8 +1,11 @@
 {
   "name": "ff-bypass",
   "version": "1.0.0",
-  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
   "engines": {
-    "node": "24.x"
+    "node": "20.x"
   }
 }
