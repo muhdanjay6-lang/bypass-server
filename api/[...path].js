@@ -8,11 +8,9 @@ module.exports = async function handler(req, res) {
     '/ReportEventPushInfo',
   ]
 
-  // bina path
   const pathParts = req.query.path
   const path = '/' + (Array.isArray(pathParts) ? pathParts.join('/') : pathParts || '')
 
-  // intercept — return kosong
   for (const ep of INTERCEPT_EMPTY) {
     if (path === ep) {
       res.setHeader('vary', 'Accept-Encoding')
@@ -22,7 +20,6 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // bina forward headers
   const forwardHeaders = {}
   for (const [k, v] of Object.entries(req.headers)) {
     if (['host','x-forwarded-for','x-forwarded-host','x-forwarded-proto','x-vercel-id','x-real-ip'].includes(k)) continue
@@ -30,7 +27,6 @@ module.exports = async function handler(req, res) {
   }
   forwardHeaders['host'] = 'clientbp.ppmainecoonghj.com'
 
-  // baca raw body
   let body = undefined
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     body = await new Promise((resolve, reject) => {
@@ -41,7 +37,6 @@ module.exports = async function handler(req, res) {
     })
   }
 
-  // forward ke Garena
   let upstream
   try {
     upstream = await fetch(`${REAL_SERVER}${path}`, {
@@ -51,11 +46,10 @@ module.exports = async function handler(req, res) {
       redirect: 'manual',
     })
   } catch (err) {
-    res.status(502).end()
+    res.status(502).json({ error: err.message, path: path, target: REAL_SERVER })
     return
   }
 
-  // copy response headers
   for (const [k, v] of upstream.headers.entries()) {
     if (k === 'content-encoding' || k === 'transfer-encoding') continue
     try { res.setHeader(k, v) } catch (_) {}
