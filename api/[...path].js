@@ -1,36 +1,18 @@
-// lang: Node.js, file: api/[...path].js, target: Vercel Serverless
-// reverse proxy ke clientbp.ppmainecoonghj.com — intercept CheckHackBehavior
+// lang: Node.js CommonJS, file: api/[...path].js, target: Vercel Serverless
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-}
+module.exports = async function handler(req, res) {
+  const REAL_SERVER = 'https://clientbp.ppmainecoonghj.com'
 
-const REAL_SERVER = 'https://clientbp.ppmainecoonghj.com'
+  const INTERCEPT_EMPTY = [
+    '/CheckHackBehavior',
+    '/ReportEventPushInfo',
+  ]
 
-// endpoint yang kena intercept — return kosong terus, tak forward ke Garena
-const INTERCEPT_EMPTY = [
-  '/CheckHackBehavior',
-  '/ReportEventPushInfo',
-]
-
-// baca raw body dari request stream
-function getRawBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    req.on('data', (chunk) => chunks.push(chunk))
-    req.on('end', () => resolve(Buffer.concat(chunks)))
-    req.on('error', reject)
-  })
-}
-
-export default async function handler(req, res) {
-  // bina path dari dynamic route
+  // bina path
   const pathParts = req.query.path
-  const path = '/' + (Array.isArray(pathParts) ? pathParts.join('/') : pathParts)
+  const path = '/' + (Array.isArray(pathParts) ? pathParts.join('/') : pathParts || '')
 
-  // intercept — return 200 kosong, Garena tak dapat data
+  // intercept — return kosong
   for (const ep of INTERCEPT_EMPTY) {
     if (path === ep) {
       res.setHeader('vary', 'Accept-Encoding')
@@ -40,57 +22,50 @@ export default async function handler(req, res) {
     }
   }
 
-  // forward headers — buang yang akan cause masalah
+  // bina forward headers
   const forwardHeaders = {}
   for (const [k, v] of Object.entries(req.headers)) {
-    if (
-      k === 'host' ||
-      k === 'x-forwarded-for' ||
-      k === 'x-forwarded-host' ||
-      k === 'x-forwarded-proto' ||
-      k === 'x-vercel-id' ||
-      k === 'x-real-ip'
-    ) continue
+    if (['host','x-forwarded-for','x-forwarded-host','x-forwarded-proto','x-vercel-id','x-real-ip'].includes(k)) continue
     forwardHeaders[k] = v
   }
-
-  // set host ke real server
   forwardHeaders['host'] = 'clientbp.ppmainecoonghj.com'
 
-  // baca body kalau ada
+  // baca raw body
   let body = undefined
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    body = await getRawBody(req)
+    body = await new Promise((resolve, reject) => {
+      const chunks = []
+      req.on('data', c => chunks.push(c))
+      req.on('end', () => resolve(Buffer.concat(chunks)))
+      req.on('error', reject)
+    })
   }
 
-  // forward ke Garena server sebenar
+  // forward ke Garena
   let upstream
   try {
     upstream = await fetch(`${REAL_SERVER}${path}`, {
       method: req.method,
       headers: forwardHeaders,
       body: body,
-      // jangan follow redirect automatik
       redirect: 'manual',
     })
   } catch (err) {
-    res.status(502).json({ error: 'upstream failed', detail: err.message })
+    res.status(502).end()
     return
   }
 
-  // copy response headers dari Garena
+  // copy response headers
   for (const [k, v] of upstream.headers.entries()) {
-    // buang content-encoding — Vercel akan handle compression sendiri
-    if (k === 'content-encoding') continue
-    if (k === 'transfer-encoding') continue
-    try {
-      res.setHeader(k, v)
-    } catch (_) {}
+    if (k === 'content-encoding' || k === 'transfer-encoding') continue
+    try { res.setHeader(k, v) } catch (_) {}
   }
 
   res.status(upstream.status)
-
-  // stream response balik ke client
   const buf = await upstream.arrayBuffer()
   res.end(Buffer.from(buf))
+}
+
+module.exports.config = {
+  api: { bodyParser: false }
 }
